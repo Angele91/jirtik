@@ -30,7 +30,7 @@ def main(parser=DEFAULT_PARSER):
         "--configure",
         nargs=2,
         metavar=("KEY", "VALUE"),
-        help="Configure credentials. Example: jirtik configure jira_email "
+        help="Configure credentials. Example: jirtik --configure jira_email "
         "your@email.com\n"
         "Available keys: jira_email, jira_token, ticktick_client_id, "
         "ticktick_client_secret",
@@ -97,7 +97,7 @@ def main(parser=DEFAULT_PARSER):
             "  jirtik --configure KEY VALUE Configure credentials\n"
             "                              Available keys: jira_email, jira_token,\n"
             "                              ticktick_client_id, ticktick_client_secret\n"
-            "                              Example: jirtik configure jira_email your@email.com\n"
+            "                              Example: jirtik --configure jira_email your@email.com\n"
             "                              For values with special chars use single quotes:\n"
             "                              jirtik --configure key 'value!@#$'"
         )

@@ -1,6 +1,6 @@
 import re
 import logging
-from typing import Dict
+from typing import Dict, List
 from urllib.parse import parse_qs, urlparse
 import requests
 import webbrowser
@@ -43,18 +43,26 @@ class TaskManager:
         self.api_base_url = "https://api.ticktick.com/open/v1"
         logging.info("TaskManager initialized")
 
-    def _get_jira_credentials(self) -> Dict[str, str]:
+    def _get_jira_credentials(self) -> Dict[str, List[str]]:
         logging.info("Retrieving JIRA credentials")
-        email = self.config.get_config("jira_email")
-        token = self.config.get_config("jira_token")
-        if not email or not token:
-            logging.error("JIRA credentials not found in configuration")
+        emails = self.config.get_jira_emails()
+        if not emails:
+            logging.error("No JIRA emails found in configuration")
             raise ValueError(
-                "JIRA credentials not configured. Use 'jirtik configure "
-                "jira_email <email>' and 'jirtik configure jira_token <token>'"
+                "No JIRA emails configured. Use 'jirtik --configure "
+                "jira_email <email>'"
             )
+
+        tokens = self.config.get_jira_tokens()
+        if not tokens:
+            logging.error("No JIRA tokens found in configuration")
+            raise ValueError(
+                "No JIRA tokens configured. Use 'jirtik --configure "
+                "jira_token <token>'"
+            )
+
         logging.info("JIRA credentials retrieved successfully")
-        return {"email": email, "token": token}
+        return {"emails": emails, "tokens": tokens}
 
     def _get_ticktick_token(self) -> str:
         """Get or refresh TickTick access token."""
@@ -180,7 +188,7 @@ class TaskManager:
         logging.info("Fetching JIRA issue from URL: %s", issue_url)
         creds = self._get_jira_credentials()
 
-        # Extract issue key from URL
+        # Extract issue key and domain from URL
         match = re.search(r"/browse/([A-Z]+-\d+)", issue_url)
         if not match:
             logging.error("Invalid JIRA issue URL: %s", issue_url)
@@ -188,30 +196,66 @@ class TaskManager:
 
         issue_key = match.group(1)
         base_url = issue_url.split("/browse/")[0]
+        domain = urlparse(base_url).netloc
         api_url = f"{base_url}/rest/api/2/issue/{issue_key}"
         logging.info("Making API request to: %s", api_url)
 
-        response = requests.get(
-            api_url,
-            auth=(creds["email"], creds["token"]),
-            headers={"Accept": "application/json"},
-        )
-
-        if response.status_code != 200:
-            logging.error(
-                "JIRA API request failed with status code: %d",
-                response.status_code
+        # Try cached credentials first
+        cached_creds = self.config.get_credentials_for_domain(domain)
+        if cached_creds:
+            logging.info("Using cached credentials for domain: %s", domain)
+            response = requests.get(
+                api_url,
+                auth=(cached_creds["email"], cached_creds["token"]),
+                headers={"Accept": "application/json"},
             )
-            raise Exception(
-                f"Failed to fetch JIRA issue: {response.status_code}"
-            )
+            if response.status_code == 200:
+                data = response.json()
+                logging.info("Successfully fetched JIRA issue using cached credentials: %s", issue_key)
+                return {
+                    "summary": data["fields"]["summary"],
+                    "description": data["fields"]["description"] or "",
+                }
+            elif response.status_code == 401:
+                logging.info("Cached credentials expired for domain: %s", domain)
+                self.config.remove_credentials_for_domain(domain)
 
-        data = response.json()
-        logging.info("Successfully fetched JIRA issue: %s", issue_key)
-        return {
-            "summary": data["fields"]["summary"],
-            "description": data["fields"]["description"] or "",
-        }
+        # Try all email and token combinations
+        for email in creds["emails"]:
+            for token in creds["tokens"]:
+                logging.info("Trying credentials combination - Email: %s", email)
+                response = requests.get(
+                    api_url,
+                    auth=(email, token),
+                    headers={"Accept": "application/json"},
+                )
+
+                if response.status_code == 200:
+                    # Cache the successful credentials
+                    self.config.set_credentials_for_domain(domain, email, token)
+                    data = response.json()
+                    logging.info("Successfully fetched JIRA issue: %s", issue_key)
+                    return {
+                        "summary": data["fields"]["summary"],
+                        "description": data["fields"]["description"] or "",
+                    }
+                elif response.status_code == 401 or response.status_code == 403 or response.status_code == 404:
+                    logging.info("Credentials combination failed, trying next combination...")
+                else:
+                    # If it's not an authentication error, raise the exception
+                    logging.error(
+                        "JIRA API request failed with status code: %d",
+                        response.status_code
+                    )
+                    raise Exception(
+                        f"Failed to fetch JIRA issue: {response.status_code}"
+                    )
+
+                logging.info("Credentials combination failed, trying next combination...")
+
+        # If we get here, all combinations failed
+        logging.error("All JIRA credential combinations failed authentication")
+        raise Exception("Failed to authenticate with any configured JIRA credentials")
 
     def _get_ticktick_project(self) -> str:
         logging.info("Retrieving TickTick project ID")
