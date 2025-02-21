@@ -6,7 +6,7 @@ Jirtik is a command-line tool that helps you create TickTick tasks from JIRA iss
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/jirtik.git
+git clone https://github.com/angele91/jirtik.git
 cd jirtik
 ```
 
