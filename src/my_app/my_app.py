@@ -23,6 +23,13 @@ def main(parser=DEFAULT_PARSER):
         help="JIRA issue URL to create TickTick task from.",
     )
     parser.add_argument(
+        "-t",
+        "--tags",
+        type=str,
+        required=False,
+        help="Comma-separated list of tags to add to the task. Example: work,important,urgent",
+    )
+    parser.add_argument(
         "--configure",
         nargs=2,
         metavar=("KEY", "VALUE"),
@@ -63,14 +70,24 @@ def main(parser=DEFAULT_PARSER):
             # Get JIRA issue details
             issue = task_manager.get_jira_issue(args.jira_url)
 
-            # Extract domain for tag
-            tag = task_manager._extract_domain_tag(args.jira_url)
+            # Process tags
+            tags = []
+            if args.tags:
+                # Split comma-separated tags and strip whitespace
+                tags = [tag.strip() for tag in args.tags.split(',')]
+            else:
+                # If no tags specified, use the JIRA domain tag
+                domain_tag = task_manager._extract_domain_tag(args.jira_url)
+                if domain_tag:
+                    tags.append(domain_tag)
+
+            task_description = f"URL: {args.jira_url}\n\n{issue['description']}"
 
             # Create TickTick task
             task_manager.create_ticktick_task(
                 title=issue["summary"],
-                description=issue["description"],
-                tag=tag
+                description=task_description,
+                tags=tags,
             )
             return "TickTick task created successfully"
         except Exception as e:
@@ -80,17 +97,13 @@ def main(parser=DEFAULT_PARSER):
             "Usage:\n"
             "  jirtik -v, --version        Show version\n"
             "  jirtik -s, --square N       Calculate square of a number\n"
-            "  jirtik -j, --jira-url URL   Create TickTick task from JIRA "
-            "issue\n"
+            "  jirtik -j, --jira-url URL   Create TickTick task from JIRA issue\n"
+            "  jirtik -t, --tags TAGS      Comma-separated list of tags (optional)\n"
             "  jirtik --configure KEY VALUE Configure credentials\n"
-            "                              Available keys: jira_email, "
-            "jira_token,\n"
-            "                              ticktick_client_id, "
-            "ticktick_client_secret\n"
-            "                              Example: jirtik configure "
-            "jira_email your@email.com\n"
-            "                              For values with special chars use "
-            "single quotes:\n"
+            "                              Available keys: jira_email, jira_token,\n"
+            "                              ticktick_client_id, ticktick_client_secret\n"
+            "                              Example: jirtik configure jira_email your@email.com\n"
+            "                              For values with special chars use single quotes:\n"
             "                              jirtik --configure key 'value!@#$'"
         )
 

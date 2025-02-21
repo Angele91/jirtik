@@ -219,14 +219,29 @@ class TaskManager:
         logging.info("TickTick project ID: %s", project_id)
         return project_id
 
-    def create_ticktick_task(self, title: str, description: str, tag: str) -> None:
+    def create_ticktick_task(
+        self,
+        title: str,
+        description: str,
+        tags: list[str],
+    ) -> None:
+        """
+        Creates a TickTick task with the given title, description and tags.
+
+        Args:
+            title: The title of the task
+            description: The description/content of the task
+            tags: List of tags to add to the task
+        Raises:
+            Exception: If task creation fails
+        """
         logging.info("Creating TickTick task with title: %s", title)
         project_id = self._get_ticktick_project()
 
         task_data = {
             "title": title,
             "content": description,
-            "tags": [tag],
+            "tags": tags,
             "projectId": project_id
         }
 
