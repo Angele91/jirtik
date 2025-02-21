@@ -1,7 +1,7 @@
 import argparse
 from ._version import __version__
-from my_app.config_manager import ConfigManager
-from my_app.task_manager import TaskManager
+from jirtik.config_manager import ConfigManager
+from jirtik.task_manager import TaskManager
 
 
 DEFAULT_PARSER = argparse.ArgumentParser()
@@ -11,9 +11,6 @@ def main(parser=DEFAULT_PARSER):
     """Main entry point for the application."""
     parser.add_argument(
         "-v", "--version", action="store_true", help="Shows the app version."
-    )
-    parser.add_argument(
-        "-s", "--square", type=int, required=False, help="Square a number."
     )
     parser.add_argument(
         "-j",
@@ -49,8 +46,6 @@ def main(parser=DEFAULT_PARSER):
 
     if args.version:
         return __version__
-    elif args.square:
-        return square(args.square)
     elif args.jira_url:
         task_manager = TaskManager()
         try:

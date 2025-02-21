@@ -5,8 +5,8 @@
   "description": "A tool to create TickTick tasks from JIRA issues",
   "url": "https://github.com/angele91/jirtik",
   "python_version": "3.12",
-  "version": "0.1.49",
+  "version": "0.1.55",
   "scripts": [
-    "jirtik = my_app:main"
+    "jirtik = jirtik:main"
   ]
 }
