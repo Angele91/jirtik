@@ -9,6 +9,7 @@ class ConfigManager:
         self.config_dir = os.path.expanduser("~/.jirtik")
         self.config_file = os.path.join(self.config_dir, "creds.json")
         self.token_map_file = os.path.join(self.config_dir, "jira_token_map.json")
+        self.gitea_token_map_file = os.path.join(self.config_dir, "gitea_token_map.json")
         self._ensure_config_dir()
 
     def _ensure_config_dir(self) -> None:
@@ -17,6 +18,8 @@ class ConfigManager:
             self._save_config({})
         if not os.path.exists(self.token_map_file):
             self._save_token_map({})
+        if not os.path.exists(self.gitea_token_map_file):
+            self._save_gitea_token_map({})
 
     def _load_config(self) -> Dict[str, str | List[str]]:
         try:
@@ -40,11 +43,29 @@ class ConfigManager:
         with open(self.token_map_file, 'w') as f:
             json.dump(token_map, f, indent=4)
 
+    def _load_gitea_token_map(self) -> Dict[str, Dict[str, str]]:
+        try:
+            with open(self.gitea_token_map_file, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return {}
+
+    def _save_gitea_token_map(self, token_map: Dict[str, Dict[str, str]]) -> None:
+        with open(self.gitea_token_map_file, 'w') as f:
+            json.dump(token_map, f, indent=4)
+
     def set_config(self, key: str, value: str) -> None:
         config = self._load_config()
         if key in ["jira_token", "jira_email"]:
             # For JIRA tokens and emails, store as lists
             key_plural = f"{key}s"  # jira_token -> jira_tokens, jira_email -> jira_emails
+            values = config.get(key_plural, [])
+            if value not in values:
+                values.append(value)
+            config[key_plural] = values
+        elif key in ["gitea_token", "gitea_username"]:
+            # For Gitea tokens and usernames, store as lists
+            key_plural = f"{key}s"  # gitea_token -> gitea_tokens, gitea_username -> gitea_usernames
             values = config.get(key_plural, [])
             if value not in values:
                 values.append(value)
@@ -55,7 +76,7 @@ class ConfigManager:
 
     def get_config(self, key: str) -> Optional[str | List[str]]:
         config = self._load_config()
-        if key in ["jira_token", "jira_email"]:
+        if key in ["jira_token", "jira_email", "gitea_token", "gitea_username"]:
             # Return the first value for backward compatibility
             key_plural = f"{key}s"
             values = config.get(key_plural, [])
@@ -71,6 +92,16 @@ class ConfigManager:
         """Get all configured JIRA emails."""
         config = self._load_config()
         return config.get("jira_emails", [])
+
+    def get_gitea_tokens(self) -> List[str]:
+        """Get all configured Gitea tokens."""
+        config = self._load_config()
+        return config.get("gitea_tokens", [])
+
+    def get_gitea_usernames(self) -> List[str]:
+        """Get all configured Gitea usernames."""
+        config = self._load_config()
+        return config.get("gitea_usernames", [])
 
     def get_credentials_for_domain(self, domain: str) -> Optional[Dict[str, str]]:
         """Get the cached credentials for a specific JIRA domain."""
@@ -98,3 +129,30 @@ class ConfigManager:
         if domain in token_map:
             del token_map[domain]
             self._save_token_map(token_map)
+
+    def get_gitea_credentials_for_domain(self, domain: str) -> Optional[Dict[str, str]]:
+        """Get the cached credentials for a specific Gitea domain."""
+        token_map = self._load_gitea_token_map()
+        domain_creds = token_map.get(domain, {})
+        if domain_creds:
+            return {
+                "username": domain_creds.get("username"),
+                "token": domain_creds.get("token")
+            }
+        return None
+
+    def set_gitea_credentials_for_domain(self, domain: str, username: str, token: str) -> None:
+        """Cache successful credentials for a specific Gitea domain."""
+        token_map = self._load_gitea_token_map()
+        token_map[domain] = {
+            "username": username,
+            "token": token
+        }
+        self._save_gitea_token_map(token_map)
+
+    def remove_gitea_credentials_for_domain(self, domain: str) -> None:
+        """Remove cached Gitea credentials mapping for a domain."""
+        token_map = self._load_gitea_token_map()
+        if domain in token_map:
+            del token_map[domain]
+            self._save_gitea_token_map(token_map)

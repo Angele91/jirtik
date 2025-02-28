@@ -1,12 +1,13 @@
-import re
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional, Type
 from urllib.parse import parse_qs, urlparse
 import requests
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 from .config_manager import ConfigManager
+from .providers.base import IssueProvider
+from .providers import AVAILABLE_PROVIDERS
 
 logging.basicConfig(level=logging.INFO)
 
@@ -41,28 +42,20 @@ class TaskManager:
         self.auth_url = "https://ticktick.com/oauth/authorize"
         self.token_url = "https://ticktick.com/oauth/token"
         self.api_base_url = "https://api.ticktick.com/open/v1"
-        logging.info("TaskManager initialized")
 
-    def _get_jira_credentials(self) -> Dict[str, List[str]]:
-        logging.info("Retrieving JIRA credentials")
-        emails = self.config.get_jira_emails()
-        if not emails:
-            logging.error("No JIRA emails found in configuration")
-            raise ValueError(
-                "No JIRA emails configured. Use 'jirtik --configure "
-                "jira_email <email>'"
-            )
+        # Initialize config directory for providers
+        self.config_dir = self.config.config_dir
 
-        tokens = self.config.get_jira_tokens()
-        if not tokens:
-            logging.error("No JIRA tokens found in configuration")
-            raise ValueError(
-                "No JIRA tokens configured. Use 'jirtik --configure "
-                "jira_token <token>'"
-            )
+        # Initialize provider instances
+        self.providers: List[Type[IssueProvider]] = AVAILABLE_PROVIDERS
+        logging.info("TaskManager initialized with providers: %s", [p.__name__ for p in self.providers])
 
-        logging.info("JIRA credentials retrieved successfully")
-        return {"emails": emails, "tokens": tokens}
+    def _get_provider_for_url(self, url: str) -> Optional[IssueProvider]:
+        """Find the appropriate provider for a given URL."""
+        for provider_class in self.providers:
+            if provider_class.can_handle_url(url):
+                return provider_class(self.config_dir)
+        return None
 
     def _get_ticktick_token(self) -> str:
         """Get or refresh TickTick access token."""
@@ -177,85 +170,32 @@ class TaskManager:
 
         return response
 
-    def _extract_domain_tag(self, url: str) -> str:
-        logging.info("Extracting domain tag from URL: %s", url)
+    def extract_domain_tag(self, url: str) -> str:
+        """Extract tag from the domain of a URL using the appropriate provider."""
+        provider = self._get_provider_for_url(url)
+        if provider:
+            return provider.extract_domain_tag(url)
+
+        # Fallback implementation if no provider is found
+        logging.info("No provider found for URL, using default domain extraction: %s", url)
         domain = urlparse(url).netloc
         tag = domain.split(".")[0]
         logging.info("Extracted tag: %s", tag)
         return tag
 
+    def get_issue(self, issue_url: str) -> Dict[str, str]:
+        """Get issue details from an issue provider."""
+        provider = self._get_provider_for_url(issue_url)
+        if not provider:
+            logging.error("No provider found for URL: %s", issue_url)
+            raise ValueError(f"No provider available for URL: {issue_url}")
+
+        return provider.get_issue(issue_url)
+
+    # Keep get_jira_issue for backward compatibility
     def get_jira_issue(self, issue_url: str) -> Dict[str, str]:
-        logging.info("Fetching JIRA issue from URL: %s", issue_url)
-        creds = self._get_jira_credentials()
-
-        # Extract issue key and domain from URL
-        match = re.search(r"/browse/([A-Z]+-\d+)", issue_url)
-        if not match:
-            logging.error("Invalid JIRA issue URL: %s", issue_url)
-            raise ValueError("Invalid JIRA issue URL")
-
-        issue_key = match.group(1)
-        base_url = issue_url.split("/browse/")[0]
-        domain = urlparse(base_url).netloc
-        api_url = f"{base_url}/rest/api/2/issue/{issue_key}"
-        logging.info("Making API request to: %s", api_url)
-
-        # Try cached credentials first
-        cached_creds = self.config.get_credentials_for_domain(domain)
-        if cached_creds:
-            logging.info("Using cached credentials for domain: %s", domain)
-            response = requests.get(
-                api_url,
-                auth=(cached_creds["email"], cached_creds["token"]),
-                headers={"Accept": "application/json"},
-            )
-            if response.status_code == 200:
-                data = response.json()
-                logging.info("Successfully fetched JIRA issue using cached credentials: %s", issue_key)
-                return {
-                    "summary": data["fields"]["summary"],
-                    "description": data["fields"]["description"] or "",
-                }
-            elif response.status_code == 401:
-                logging.info("Cached credentials expired for domain: %s", domain)
-                self.config.remove_credentials_for_domain(domain)
-
-        # Try all email and token combinations
-        for email in creds["emails"]:
-            for token in creds["tokens"]:
-                logging.info("Trying credentials combination - Email: %s", email)
-                response = requests.get(
-                    api_url,
-                    auth=(email, token),
-                    headers={"Accept": "application/json"},
-                )
-
-                if response.status_code == 200:
-                    # Cache the successful credentials
-                    self.config.set_credentials_for_domain(domain, email, token)
-                    data = response.json()
-                    logging.info("Successfully fetched JIRA issue: %s", issue_key)
-                    return {
-                        "summary": data["fields"]["summary"],
-                        "description": data["fields"]["description"] or "",
-                    }
-                elif response.status_code == 401 or response.status_code == 403 or response.status_code == 404:
-                    logging.info("Credentials combination failed, trying next combination...")
-                else:
-                    # If it's not an authentication error, raise the exception
-                    logging.error(
-                        "JIRA API request failed with status code: %d",
-                        response.status_code
-                    )
-                    raise Exception(
-                        f"Failed to fetch JIRA issue: {response.status_code}"
-                    )
-
-                logging.info("Credentials combination failed, trying next combination...")
-
-        # If we get here, all combinations failed
-        logging.error("All JIRA credential combinations failed authentication")
-        raise Exception("Failed to authenticate with any configured JIRA credentials")
+        """Get issue details from an issue provider (backward compatibility)."""
+        return self.get_issue(issue_url)
 
     def _get_ticktick_project(self) -> str:
         logging.info("Retrieving TickTick project ID")
@@ -267,7 +207,7 @@ class TaskManager:
         self,
         title: str,
         description: str,
-        tags: list[str],
+        tags: List[str],
     ) -> None:
         """
         Creates a TickTick task with the given title, description and tags.
@@ -301,3 +241,42 @@ class TaskManager:
             raise Exception("Failed to create TickTick task")
 
         logging.info("TickTick task created successfully")
+
+    def set_provider_config(self, key: str, value: str) -> None:
+        """
+        Set a configuration value for the appropriate provider.
+
+        Args:
+            key: Configuration key (e.g. jira_email, gitea_token)
+            value: Configuration value
+
+        Raises:
+            ValueError: If the key is not recognized by any provider
+        """
+        # Find which provider handles this key
+        for provider_class in self.providers:
+            if key in provider_class.config_keys:
+                provider = provider_class(self.config_dir)
+                provider.add_credentials(key, value)
+                logging.info("Added %s to %s configuration", key, provider_class.__name__)
+                return
+
+        # If we get here, no provider recognized the key
+        logging.error("No provider found for config key: %s", key)
+        provider_keys = []
+        for provider_class in self.providers:
+            provider_keys.extend(provider_class.config_keys)
+
+        raise ValueError(f"Invalid configuration key: {key}. Expected one of: {', '.join(provider_keys)}")
+
+    def get_all_supported_config_keys(self) -> List[str]:
+        """
+        Get all configuration keys supported by the registered providers.
+
+        Returns:
+            List of supported configuration keys
+        """
+        keys = []
+        for provider_class in self.providers:
+            keys.extend(provider_class.config_keys)
+        return keys
