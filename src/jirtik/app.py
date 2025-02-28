@@ -30,8 +30,8 @@ def cli(ctx, version):
 
 @cli.command()
 @click.option(
-    '-j',
-    '--jira-url',
+    '-u',
+    '--url',
     type=str,
     required=True,
     help='Issue URL to create TickTick task from (supports Jira, Gitea, etc.).'
@@ -44,7 +44,7 @@ def cli(ctx, version):
     help='Comma-separated list of tags to add to the task. Example: work,important,urgent'
 )
 @click.pass_context
-def create(ctx, jira_url: str, tags: Optional[str] = None):
+def create(ctx, url: str, tags: Optional[str] = None):
     """Create a TickTick task from an issue URL."""
     task_manager = ctx.obj['task_manager']
 
@@ -65,7 +65,7 @@ def create(ctx, jira_url: str, tags: Optional[str] = None):
 
         # Fetch issue details with animation
         with console.status("[bold blue]Fetching issue details...[/]", spinner="dots"):
-            issue = task_manager.get_issue(jira_url)
+            issue = task_manager.get_issue(url)
 
         # Process tags
         tag_list = []
@@ -75,11 +75,11 @@ def create(ctx, jira_url: str, tags: Optional[str] = None):
         else:
             # If no tags specified, use the domain tag from the provider
             with console.status("[bold blue]Generating tags...[/]", spinner="dots"):
-                domain_tag = task_manager.extract_domain_tag(jira_url)
+                domain_tag = task_manager.extract_domain_tag(url)
                 if domain_tag:
                     tag_list.append(domain_tag)
 
-        task_description = f"URL: {jira_url}\n\n{issue['description']}"
+        task_description = f"URL: {url}\n\n{issue['description']}"
 
         # Create TickTick task with progress animation
         with console.status("[bold green]Creating TickTick task...[/]", spinner="dots"):

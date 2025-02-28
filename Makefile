@@ -15,9 +15,9 @@ publish: publish-local
 run:
 ifdef URL
 ifdef TAGS
-	jirtik create --jira-url "$(URL)" --tags "$(TAGS)"
+	jirtik create --url "$(URL)" --tags "$(TAGS)"
 else
-	jirtik create --jira-url "$(URL)"
+	jirtik create --url "$(URL)"
 endif
 else ifdef VERSION
 	jirtik --version
